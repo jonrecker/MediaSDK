@@ -22,11 +22,15 @@
 # library implementation inside. A key thing for the trick to work is
 # avoiding non-default symbol versioning, i.e. -Wl,--default-symver which
 # is propagated by mediasdk test system should be avoided. 
-add_executable(mfx_dispatch_tests mfx_dispatch_tests.cpp)
+include_directories(include)
+add_executable(mfx_dispatch_test
+  mfx_dispatch_test_main.cpp
+  mfx_dispatch_test_hooks.cpp
+  mfx_dispatch_test_libs.cpp)
 
-set_target_properties(mfx_dispatch_tests PROPERTIES
+set_target_properties(mfx_dispatch_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BIN_DIR}/${CMAKE_BUILD_TYPE})
 
-target_link_libraries( mfx_dispatch_tests mfx gtest pthread)
+target_link_libraries( mfx_dispatch_test mfx gtest pthread)
 
-install(TARGETS mfx_dispatch_tests RUNTIME DESTINATION ${MFX_APPS_DIR}/tests)
+install(TARGETS mfx_dispatch_test RUNTIME DESTINATION ${MFX_APPS_DIR}/tests)

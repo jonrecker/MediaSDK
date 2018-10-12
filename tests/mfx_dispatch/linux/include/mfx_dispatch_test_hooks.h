@@ -18,34 +18,33 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "gtest/gtest.h"
+#ifndef MFX_DISPATCH_HOOKS_H
+#define MFX_DISPATCH_HOOKS_H
+
 #include <mfxvideo.h>
+#include <functional>
 
-extern "C"
+struct HookInternalParams
 {
-  void *dlopen(const char *filename, int flag)
-  {
-    printf("dlopen: filename=%s, flag=%d\n", filename, flag);
-    return NULL;
-  }
+    mfxVersion emulated_api_version = {{0, 0}};
+};
 
-  void *dlsym(void *handle, const char *symbol)
-  {
-    printf("dlsym: handle=%p, symbol=%s\n", handle, symbol);
-    return NULL;
-  }
-} // extern "C"
+typedef void* HookHandle;
 
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
+typedef std::function<void* (const char*, int)> DlopenHook;
+typedef std::function<void* (void*, const char*)> DlsymHook;
 
-  mfxIMPL impl = 0;
-  mfxVersion ver{};
-  mfxSession session = NULL;
 
-  mfxStatus sts = MFXInit(impl, &ver, &session);
-  
-  printf(">>> sts=%d\n", sts);
-
-  return RUN_ALL_TESTS();
+namespace TEST_DLOPEN_HOOKS
+{
+    void* AlwaysNull(const char *filename, int flag);
+    void* AlwaysNullParametrized(const char *filename, int flag, HookInternalParams par);
 }
+
+namespace TEST_DLSYM_HOOKS
+{
+    void* AlwaysNull(void *handle, const char *symbol);
+    void* AlwaysNullParametrized(void *handle, const char *symbol, HookInternalParams par);
+}
+
+#endif /* MFX_DISPATCH_HOOKS_H */
