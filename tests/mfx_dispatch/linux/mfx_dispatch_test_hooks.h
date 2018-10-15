@@ -18,13 +18,35 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef MFX_DISPATCH_TESTS_MAIN_H
-#define MFX_DISPATCH_TESTS_MAIN_H
+#ifndef MFX_DISPATCH_HOOKS_H
+#define MFX_DISPATCH_HOOKS_H
 
-#include "mfx_dispatch_test_hooks.h"
-#include <map>
+#include <mfxvideo.h>
+#include <functional>
 
-extern DlopenHook g_dlopen_hook;
-extern DlsymHook g_dlsym_hook;
+struct HookInternalParams
+{
+    mfxVersion emulated_api_version = {{0, 0}};
+    mfxIMPL requested_implementation = MFX_IMPL_UNSUPPORTED;
+};
 
-#endif /* MFX_DISPATCH_TESTS_MAIN_H */
+typedef void* HookHandle;
+
+typedef std::function<void* (const char*, int)> DlopenHook;
+typedef std::function<void* (void*, const char*)> DlsymHook;
+
+
+namespace TEST_DLOPEN_HOOKS
+{
+    void* AlwaysNull(const char *filename, int flag);
+    void* AlwaysNullNameCheck(const char *filename, int flag, HookInternalParams par);
+    void* AlwaysNullParametrized(const char *filename, int flag, HookInternalParams par);
+}
+
+namespace TEST_DLSYM_HOOKS
+{
+    void* AlwaysNull(void *handle, const char *symbol);
+    void* AlwaysNullParametrized(void *handle, const char *symbol, HookInternalParams par);
+}
+
+#endif /* MFX_DISPATCH_HOOKS_H */

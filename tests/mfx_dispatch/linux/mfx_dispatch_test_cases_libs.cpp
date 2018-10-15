@@ -25,7 +25,7 @@
 
 using namespace std::placeholders;
 
-TEST(DispatcherLibraryLoadTest, ShouldFailIfNoLibrayIsFound)
+TEST(DispatcherLibraryLoadTest, ShouldFailIfNoLibraryIsFound)
 {
     mfxIMPL impl = 0;
     mfxVersion ver{};
@@ -36,6 +36,36 @@ TEST(DispatcherLibraryLoadTest, ShouldFailIfNoLibrayIsFound)
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     ASSERT_EQ(sts, MFX_ERR_UNSUPPORTED);
+}
+
+TEST(DispatcherLibraryLoadTest, ShouldEnumerateCorrectLibNames)
+{
+    mfxIMPL impl = 0;
+    mfxVersion ver{};
+    mfxSession session = NULL;
+    HookInternalParams par {};
+
+    g_dlsym_hook  = TEST_DLSYM_HOOKS::AlwaysNull;
+
+    std::vector<mfxIMPL> impl_cases_list {
+            MFX_IMPL_AUTO,
+            MFX_IMPL_SOFTWARE,
+            MFX_IMPL_HARDWARE,
+            MFX_IMPL_AUTO_ANY,
+            MFX_IMPL_HARDWARE_ANY,
+            MFX_IMPL_HARDWARE2,
+            MFX_IMPL_HARDWARE3,
+            MFX_IMPL_HARDWARE4,
+            MFX_IMPL_RUNTIME,
+    };
+
+    for (auto impl_case : impl_cases_list)
+    {
+        impl = impl_case;
+        par.requested_implementation = impl;
+        g_dlopen_hook = std::bind(TEST_DLOPEN_HOOKS::AlwaysNullNameCheck, _1, _2, par);
+        mfxStatus sts = MFXInit(impl, &ver, &session);
+    }
 }
 
 
@@ -52,4 +82,3 @@ TEST(DispatcherLibraryLoadTest, ShouldFailIfAvailLibVersionLessThanRequested)
     mfxStatus sts = MFXInit(impl, &ver, &session);
     ASSERT_EQ(sts, MFX_ERR_UNSUPPORTED);
 }
-

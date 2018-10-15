@@ -18,33 +18,17 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef MFX_DISPATCH_HOOKS_H
-#define MFX_DISPATCH_HOOKS_H
+#ifndef MFX_DISPATCH_TESTS_MAIN_H
+#define MFX_DISPATCH_TESTS_MAIN_H
 
-#include <mfxvideo.h>
-#include <functional>
+#include "mfx_dispatch_test_hooks.h"
+#include <map>
 
-struct HookInternalParams
-{
-    mfxVersion emulated_api_version = {{0, 0}};
-};
+#ifndef MFX_MODULES_DIR
+#define MFX_MODULES_DIR "ERROR: MFX_MODULES_DIR was not defined!"
+#endif
 
-typedef void* HookHandle;
+extern DlopenHook g_dlopen_hook;
+extern DlsymHook g_dlsym_hook;
 
-typedef std::function<void* (const char*, int)> DlopenHook;
-typedef std::function<void* (void*, const char*)> DlsymHook;
-
-
-namespace TEST_DLOPEN_HOOKS
-{
-    void* AlwaysNull(const char *filename, int flag);
-    void* AlwaysNullParametrized(const char *filename, int flag, HookInternalParams par);
-}
-
-namespace TEST_DLSYM_HOOKS
-{
-    void* AlwaysNull(void *handle, const char *symbol);
-    void* AlwaysNullParametrized(void *handle, const char *symbol, HookInternalParams par);
-}
-
-#endif /* MFX_DISPATCH_HOOKS_H */
+#endif /* MFX_DISPATCH_TESTS_MAIN_H */
