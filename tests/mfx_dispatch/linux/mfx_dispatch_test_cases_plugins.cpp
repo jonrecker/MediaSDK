@@ -21,55 +21,27 @@
 #include "mfx_dispatch_test_main.h"
 
 #include "gtest/gtest.h"
+#include "mfxplugin.h"
 #include <mfxvideo.h>
 #include <functional>
 
 using namespace std::placeholders;
 
-
-TEST_F(DispatcherTest, ShouldFailIfNoLibraryIsFound)
+TEST_F(DispatcherTest, ShouldSearchForPluginsCfgByCorrectPath)
 {
-    mfxStatus sts = MFXInit(impl, &ver, &session);
-    ASSERT_EQ(sts, MFX_ERR_UNSUPPORTED);
-}
-
-TEST_F(DispatcherTest, ShouldEnumerateCorrectLibNames)
-{
-    std::vector<mfxIMPL> impl_cases_list {
-            MFX_IMPL_AUTO,
-            MFX_IMPL_SOFTWARE,
-            MFX_IMPL_HARDWARE,
-            MFX_IMPL_AUTO_ANY,
-            MFX_IMPL_HARDWARE_ANY,
-            MFX_IMPL_HARDWARE2,
-            MFX_IMPL_HARDWARE3,
-            MFX_IMPL_HARDWARE4,
-            MFX_IMPL_RUNTIME,
-    };
-
-    for (auto impl_case : impl_cases_list)
-    {
-        impl = impl_case;
-        par.requested_implementation = impl;
-        g_dlopen_hook = std::bind(TEST_DLOPEN_HOOKS::AlwaysNullLibNameCheck, _1, _2, par);
-        mfxStatus sts = MFXInit(impl, &ver, &session);
-    }
-}
-
-
-TEST_F(DispatcherTest, ShouldFailIfAvailLibVersionLessThanRequested)
-{
-    par.emulated_api_version = {{10, 1}}; // Should fail for no MfxInitEx
     ver = {{28, 1}};
-
+    par.emulated_api_version = ver;
     g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysBogus;
-    g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
+    g_dlsym_hook = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
+    g_fopen_hook = TEST_FOPEN_HOOKS::AlwaysNullPluginPathCheck;
+    g_mfxinitex_hook = TEST_MFXINITEX_HOOKS::AlwaysErrNone;
+    g_mfxqueryimpl_hook = TEST_MFXQUERYIMPL_HOOKS::AlwaysErrNone;
+    g_mfxqueryversion_hook = std::bind(TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneParametrized, _1, _2, par);
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
-    EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
-
-    par.emulated_api_version = {{18, 1}};
-    g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
-    sts = MFXInit(impl, &ver, &session);
-    EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
+    ASSERT_EQ(sts, MFX_ERR_NONE);
+    mfxPluginUID uid{0};
+    std::fill(uid.Data, uid.Data + sizeof(mfxPluginUID), 0xBE);
+    sts = MFXVideoUSER_Load(session, &uid, 0);
 }
+

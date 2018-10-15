@@ -28,11 +28,13 @@ if( NOT DEFINED MFX_MODULES_DIR )
 endif( )
 
 add_definitions( -DMFX_MODULES_DIR="${MFX_MODULES_DIR}" )
+add_definitions( -DMFX_PLUGINS_DIR="${MFX_PLUGINS_DIR}" )
 
 add_executable(mfx_dispatch_test
   mfx_dispatch_test_main.cpp
   mfx_dispatch_test_hooks.cpp
-  mfx_dispatch_test_cases_libs.cpp)
+  mfx_dispatch_test_cases_libs.cpp
+  mfx_dispatch_test_cases_plugins.cpp)
 
 set_target_properties(mfx_dispatch_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BIN_DIR}/${CMAKE_BUILD_TYPE})

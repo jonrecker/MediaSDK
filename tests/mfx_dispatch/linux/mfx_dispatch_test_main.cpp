@@ -23,22 +23,67 @@
 
 
 DlopenHook g_dlopen_hook(TEST_DLOPEN_HOOKS::AlwaysNull);
+DlcloseHook g_dlclose_hook(TEST_DLCLOSE_HOOKS::AlwaysSuccess);
 DlsymHook g_dlsym_hook(TEST_DLSYM_HOOKS::AlwaysNull);
+FopenHook g_fopen_hook(TEST_FOPEN_HOOKS::AlwaysNull);
+MfxInitExHook g_mfxinitex_hook(TEST_MFXINITEX_HOOKS::AlwaysUnsupported);
+MfxQueryVersionHook g_mfxqueryversion_hook(TEST_MFXQUERYVERSION_HOOKS::AlwaysUnsupported);
+MfxQueryImplHook g_mfxqueryimpl_hook(TEST_MFXQUERYIMPL_HOOKS::AlwaysUnsupported);
+MfxCloseHook g_mfxclose_hook(TEST_MFXCLOSE_HOOKS::AlwaysErrNone);
+
+
 
 extern "C"
 {
     void *dlopen(const char *filename, int flag)
     {
-        printf("dlopen: filename=%s, flag=%d\n", filename, flag);
         return g_dlopen_hook(filename, flag);
+    }
+
+    int dlclose(void* handle)
+    {
+        return g_dlclose_hook(handle);
     }
 
     void *dlsym(void *handle, const char *symbol)
     {
-        printf("dlsym: handle=%p, symbol=%s\n", handle, symbol);
         return g_dlsym_hook(handle, symbol);
     }
+
+    FILE * fopen(const char *filename, const char *opentype)
+    {
+        return g_fopen_hook(filename, opentype);
+    }
+
+    // Pointers to these wrappers are returned inside the dlsym hook,
+    // because actual hooks are stored as std::function objects, produced
+    // (generally speaking) via an std::bind, and therefore cannot be cast to
+    // the proper MFXInitEx/MFXQueryVersion/etc. prototypes inside the dlsym hook.
+    mfxStatus MFXInitExHookWrap(mfxInitParam par, mfxSession *session)
+    {
+        return g_mfxinitex_hook(par, session);
+    }
+
+    mfxStatus MFXQueryVersionHookWrap(mfxSession session, mfxVersion *version)
+    {
+        return g_mfxqueryversion_hook(session, version);
+    }
+
+    mfxStatus MFXQueryIMPLHookWrap(mfxSession session, mfxIMPL *impl)
+    {
+        return g_mfxqueryimpl_hook(session, impl);
+    }
+
+    mfxStatus MFXCloseHookWrap(mfxSession session)
+    {
+        return g_mfxclose_hook(session);
+    }
+
 } // extern "C"
+
+
+
+
 
 int main(int argc, char **argv)
 {

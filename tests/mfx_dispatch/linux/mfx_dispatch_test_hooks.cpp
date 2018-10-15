@@ -21,12 +21,56 @@
 #include "mfx_dispatch_test_hooks.h"
 #include "mfx_dispatch_test_main.h"
 
-#include <gtest/gtest.h>
 #include <mfxcommon.h>
+#include <mfxdefs.h>
 #include <iostream>
 #include <vector>
 #include <string>
 #include <algorithm>
+
+#undef FUNCTION
+#define FUNCTION(return_value, func_name, formal_param_list, actual_param_list) \
+  e##func_name,
+
+enum Function
+{
+  eMFXInit,
+  eMFXInitEx,
+  eMFXClose,
+  eMFXJoinSession,
+#include "mfxvideo_functions.h"
+  eFunctionsNum,
+  eNoMoreFunctions = eFunctionsNum
+};
+
+struct FunctionsTable
+{
+  Function id;
+  const char* name;
+  mfxVersion version;
+};
+
+#define VERSION(major, minor) {{minor, major}}
+
+#undef FUNCTION
+#define FUNCTION(return_value, func_name, formal_param_list, actual_param_list) \
+    { e##func_name, #func_name, API_VERSION },
+
+
+static const FunctionsTable g_mfxFuncTable[] =
+{
+    { eMFXInit, "MFXInit", VERSION(1, 0) },
+    { eMFXInitEx, "MFXInitEx", VERSION(1, 14) },
+    { eMFXClose, "MFXClose", VERSION(1, 0) },
+    { eMFXJoinSession, "MFXJoinSession", VERSION(1, 1) },
+#include "mfxvideo_functions.h"
+    { eNoMoreFunctions }
+};
+#undef FUNCTION
+
+void* BOGUS_DLOPEN_HANDLE = reinterpret_cast<void*>(0x0BADCAFE);
+void* BOGUS_FUNC_PTR = reinterpret_cast<void*>(0xDEADBEEF);
+mfxSession BOGUS_SESSION_HANDLE = reinterpret_cast<mfxSession>(0xFADEBABE);
 
 // dlopen hooks implementation:
 
@@ -35,7 +79,12 @@ void* TEST_DLOPEN_HOOKS::AlwaysNull(const char *filename, int flag)
     return nullptr;
 }
 
-void* TEST_DLOPEN_HOOKS::AlwaysNullNameCheck(const char *filename, int flag, HookInternalParams par)
+void* TEST_DLOPEN_HOOKS::AlwaysBogus(const char *filename, int flag)
+{
+    return BOGUS_DLOPEN_HANDLE;
+}
+
+void* TEST_DLOPEN_HOOKS::AlwaysNullLibNameCheck(const char *filename, int flag, HookInternalParams par)
 {
 #if defined(__i386__)
     const std::string LIBMFXSW("libmfxsw32.so.1");
@@ -71,11 +120,10 @@ void* TEST_DLOPEN_HOOKS::AlwaysNullNameCheck(const char *filename, int flag, Hoo
     return nullptr;
 }
 
-
-void* TEST_DLOPEN_HOOKS::AlwaysNullParametrized(const char *filename, int flag, HookInternalParams par)
+// dlopen hooks implementation:
+int TEST_DLCLOSE_HOOKS::AlwaysSuccess(void* handle)
 {
-    std::cout << "Emulated API version " << par.emulated_api_version.Major << '.' << par.emulated_api_version.Minor << std::endl;
-    return nullptr;
+    return 0;
 }
 
 // dlsym hooks implementation:
@@ -86,8 +134,101 @@ void* TEST_DLSYM_HOOKS::AlwaysNull(void *handle, const char *symbol)
 }
 
 
-void* TEST_DLSYM_HOOKS::AlwaysNullParametrized(void *handle, const char *symbol, HookInternalParams par)
+void* TEST_DLSYM_HOOKS::EmulateAPIParametrized(void *handle, const char *symbol, HookInternalParams par)
 {
-    std::cout << "Emulated API version " << par.emulated_api_version.Major << '.' << par.emulated_api_version.Minor << std::endl;
+    std::string requested_symbol(symbol);
+    std::string mfxinitex_symbol("MFXInitEx");
+    std::string mfxqueryimpl_symbol("MFXQueryIMPL");
+    std::string mfxqueryversion_symbol("MFXQueryVersion");
+    std::string mfxclose_symbol("MFXClose");
+
+    if (symbol == mfxinitex_symbol)
+    {
+        return reinterpret_cast<void*>(MFXInitExHookWrap);
+    }
+    else if (symbol == mfxqueryimpl_symbol)
+    {
+        return reinterpret_cast<void*>(MFXQueryIMPLHookWrap);
+    }
+    else if (symbol == mfxqueryversion_symbol)
+    {
+        return reinterpret_cast<void*>(MFXQueryVersionHookWrap);
+    }
+    else if (symbol == mfxclose_symbol)
+    {
+        return reinterpret_cast<void*>(MFXCloseHookWrap);
+    }
+    else
+    {
+        for (int i = 0; i < eFunctionsNum; ++i)
+        {
+            std::string available_symbol(g_mfxFuncTable[i].name);
+            mfxVersion symbol_api_version = g_mfxFuncTable[i].version;
+            if (requested_symbol == available_symbol && par.emulated_api_version.Version > symbol_api_version.Version)
+            {
+                return BOGUS_FUNC_PTR;
+            }
+        }
+    }
     return nullptr;
+}
+
+// fopen hooks implementation:
+
+FILE* TEST_FOPEN_HOOKS::AlwaysNull(const char *filename, const char *opentype)
+{
+    return nullptr;
+}
+
+FILE* TEST_FOPEN_HOOKS::AlwaysNullPluginPathCheck(const char *filename, const char *opentype)
+{
+    std::string requested_plugins_path(filename);
+    std::string expected_plugins_path = std::string(MFX_PLUGINS_DIR) + "/plugins.cfg";
+    EXPECT_EQ(requested_plugins_path, expected_plugins_path);
+    return nullptr;
+}
+
+// MFXInitEx hook implementation:
+
+mfxStatus TEST_MFXINITEX_HOOKS::AlwaysUnsupported(mfxInitParam par, mfxSession *session)
+{
+    return MFX_ERR_UNSUPPORTED;
+}
+
+mfxStatus TEST_MFXINITEX_HOOKS::AlwaysErrNone(mfxInitParam par, mfxSession *session)
+{
+    *session = BOGUS_SESSION_HANDLE;
+    return MFX_ERR_NONE;
+}
+
+// MFXQueryVersion hook implementation:
+
+mfxStatus TEST_MFXQUERYVERSION_HOOKS::AlwaysUnsupported(mfxSession session, mfxVersion *pVersion)
+{
+    return MFX_ERR_UNSUPPORTED;
+}
+
+mfxStatus TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneParametrized(mfxSession session, mfxVersion *pVersion, HookInternalParams par)
+{
+    *pVersion = par.emulated_api_version;
+    return MFX_ERR_NONE;
+}
+
+// MFXQueryIMPL hook implementation:
+
+mfxStatus TEST_MFXQUERYIMPL_HOOKS::AlwaysUnsupported(mfxSession session, mfxIMPL *impl)
+{
+    return MFX_ERR_UNSUPPORTED;
+}
+
+mfxStatus TEST_MFXQUERYIMPL_HOOKS::AlwaysErrNone(mfxSession session, mfxIMPL *impl)
+{
+    return MFX_ERR_NONE;
+}
+
+// MFXClose hook implementation:
+
+mfxStatus TEST_MFXCLOSE_HOOKS::AlwaysErrNone(mfxSession session)
+{
+    return MFX_ERR_NONE;
 }
