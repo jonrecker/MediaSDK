@@ -32,14 +32,16 @@ add_definitions( -DMFX_PLUGINS_DIR="${MFX_PLUGINS_DIR}" )
 
 add_executable(mfx_dispatch_test
   mfx_dispatch_test_main.cpp
-  mfx_dispatch_test_hooks.cpp
   mfx_dispatch_test_cases_libs.cpp
-  mfx_dispatch_test_cases_plugins.cpp)
+  mfx_dispatch_test_cases_plugins.cpp
+  mfx_dispatch_test_mock_call_obj.cpp)
 
 set_target_properties(mfx_dispatch_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BIN_DIR}/${CMAKE_BUILD_TYPE})
 
-target_link_libraries( mfx_dispatch_test mfx gtest pthread )
+target_link_libraries( mfx_dispatch_test mfx gtest gmock pthread )
+
+target_include_directories( mfx_dispatch_test PUBLIC ../../../api/mfx_dispatch/linux )
 
 install(TARGETS mfx_dispatch_test RUNTIME DESTINATION ${MFX_APPS_DIR}/tests)
 

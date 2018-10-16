@@ -21,11 +21,10 @@
 #ifndef MFX_DISPATCH_TESTS_MAIN_H
 #define MFX_DISPATCH_TESTS_MAIN_H
 
-#include "mfx_dispatch_test_hooks.h"
-
+#include "mfx_dispatch_test_mock_call_obj.h"
 #include <gtest/gtest.h>
 #include <map>
-#include <functional>
+#include <list>
 
 #ifndef MFX_MODULES_DIR
 #define MFX_MODULES_DIR "ERROR: MFX_MODULES_DIR was not defined!"
@@ -35,14 +34,12 @@
 #define MFX_PLUGINS_DIR "ERROR: MFX_PLUGINS_DIR was not defined!"
 #endif
 
-extern DlopenHook g_dlopen_hook;
-extern DlcloseHook g_dlclose_hook;
-extern DlsymHook g_dlsym_hook;
-extern FopenHook g_fopen_hook;
-extern MfxInitExHook g_mfxinitex_hook;
-extern MfxQueryImplHook g_mfxqueryimpl_hook;
-extern MfxQueryVersionHook g_mfxqueryversion_hook;
-extern MfxCloseHook g_mfxclose_hook;
+#define MOCK_DLOPEN_HANDLE (void*)0x0BADCAFE
+#define MOCK_FUNC_PTR (void*)0xDEADBEEF
+#define MOCK_SESSION_HANDLE (mfxSession)0xFADEBABE
+
+
+extern std::unique_ptr<MockCallObj> g_call_obj_ptr;
 
 extern "C"
 {
@@ -52,40 +49,36 @@ extern "C"
     mfxStatus MFXCloseHookWrap(mfxSession session);
 }
 
-inline void ResetHooks()
+
+inline void ResetMockCallObj()
 {
-    g_dlopen_hook          = TEST_DLOPEN_HOOKS::AlwaysNull;
-    g_dlclose_hook         = TEST_DLCLOSE_HOOKS::AlwaysSuccess;
-    g_dlsym_hook           = TEST_DLSYM_HOOKS::AlwaysNull;
-    g_fopen_hook           = TEST_FOPEN_HOOKS::AlwaysNull;
-    g_mfxinitex_hook       = TEST_MFXINITEX_HOOKS::AlwaysUnsupported;
-    g_mfxqueryimpl_hook    = TEST_MFXQUERYIMPL_HOOKS::AlwaysUnsupported;
-    g_mfxqueryversion_hook = TEST_MFXQUERYVERSION_HOOKS::AlwaysUnsupported;
-    g_mfxclose_hook        = TEST_MFXCLOSE_HOOKS::AlwaysErrNone;
+    g_call_obj_ptr.reset(new MockCallObj);
 }
 
-inline void SetupGoodLib(HookInternalParams par)
-{
-    using namespace std::placeholders;
-    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
-    g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
-    g_mfxinitex_hook = TEST_MFXINITEX_HOOKS::AlwaysErrNone;
-    g_mfxqueryimpl_hook = TEST_MFXQUERYIMPL_HOOKS::AlwaysErrNone;
-    g_mfxqueryversion_hook = std::bind(TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneParametrized, _1, _2, par);
-}
 
 class DispatcherTest : public ::testing::Test
 {
 public:
     DispatcherTest()
     {
-        ResetHooks();
+        ResetMockCallObj();
     }
-protected:
+    virtual ~DispatcherTest()
+    {
+        g_call_obj_ptr.reset(nullptr);
+    }
     mfxIMPL impl = 0;
     mfxVersion ver{};
     mfxSession session = NULL;
-    HookInternalParams par {};
+};
+
+template <class T>
+class DispatcherTestTyped : public DispatcherTest
+{
+public:
+    typedef std::list<T> List;
+    static T shared_;
+    T value_;
 };
 
 #endif /* MFX_DISPATCH_TESTS_MAIN_H */

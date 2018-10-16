@@ -20,68 +20,53 @@
 
 #include "gtest/gtest.h"
 #include "mfx_dispatch_test_main.h"
+#include "mfx_dispatch_test_mock_call_obj.h"
 
-
-DlopenHook g_dlopen_hook(TEST_DLOPEN_HOOKS::AlwaysNull);
-DlcloseHook g_dlclose_hook(TEST_DLCLOSE_HOOKS::AlwaysSuccess);
-DlsymHook g_dlsym_hook(TEST_DLSYM_HOOKS::AlwaysNull);
-FopenHook g_fopen_hook(TEST_FOPEN_HOOKS::AlwaysNull);
-MfxInitExHook g_mfxinitex_hook(TEST_MFXINITEX_HOOKS::AlwaysUnsupported);
-MfxQueryVersionHook g_mfxqueryversion_hook(TEST_MFXQUERYVERSION_HOOKS::AlwaysUnsupported);
-MfxQueryImplHook g_mfxqueryimpl_hook(TEST_MFXQUERYIMPL_HOOKS::AlwaysUnsupported);
-MfxCloseHook g_mfxclose_hook(TEST_MFXCLOSE_HOOKS::AlwaysErrNone);
-
-
+std::unique_ptr<MockCallObj> g_call_obj_ptr;
 
 extern "C"
 {
     void *dlopen(const char *filename, int flag)
     {
-        return g_dlopen_hook(filename, flag);
+        return g_call_obj_ptr->dlopen(filename, flag);
     }
 
     int dlclose(void* handle)
     {
-        return g_dlclose_hook(handle);
+        return g_call_obj_ptr->dlclose(handle);
     }
 
     void *dlsym(void *handle, const char *symbol)
     {
-        return g_dlsym_hook(handle, symbol);
+        return g_call_obj_ptr->dlsym(handle, symbol);
     }
 
     FILE * fopen(const char *filename, const char *opentype)
     {
-        return g_fopen_hook(filename, opentype);
+        return g_call_obj_ptr->fopen(filename, opentype);
     }
 
-    // Pointers to these wrappers are returned inside the dlsym hook,
-    // because actual hooks are stored as std::function objects, produced
-    // (generally speaking) via an std::bind, and therefore cannot be cast to
-    // the proper MFXInitEx/MFXQueryVersion/etc. prototypes inside the dlsym hook.
     mfxStatus MFXInitExHookWrap(mfxInitParam par, mfxSession *session)
     {
-        return g_mfxinitex_hook(par, session);
+        return g_call_obj_ptr->MFXInitEx(par, session);
     }
 
     mfxStatus MFXQueryVersionHookWrap(mfxSession session, mfxVersion *version)
     {
-        return g_mfxqueryversion_hook(session, version);
+        return g_call_obj_ptr->MFXQueryVersion(session, version);
     }
 
     mfxStatus MFXQueryIMPLHookWrap(mfxSession session, mfxIMPL *impl)
     {
-        return g_mfxqueryimpl_hook(session, impl);
+        return g_call_obj_ptr->MFXQueryIMPL(session, impl);
     }
 
     mfxStatus MFXCloseHookWrap(mfxSession session)
     {
-        return g_mfxclose_hook(session);
+        return g_call_obj_ptr->MFXClose(session);
     }
 
 } // extern "C"
-
-
 
 
 

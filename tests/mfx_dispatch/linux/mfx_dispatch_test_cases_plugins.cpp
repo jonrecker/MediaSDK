@@ -19,29 +19,35 @@
 // SOFTWARE.
 
 #include "mfx_dispatch_test_main.h"
+#include "mfx_dispatch_test_mock_call_obj.h"
 
-#include "gtest/gtest.h"
-#include "mfxplugin.h"
+#include <gtest/gtest.h>
+#include <gmock/gmock.h>
 #include <mfxvideo.h>
-#include <functional>
+#include <mfxplugin.h>
+#include <algorithm>
 
-using namespace std::placeholders;
 
 TEST_F(DispatcherTest, ShouldSearchForPluginsCfgByCorrectPath)
 {
-    ver = {{28, 1}};
-    par.emulated_api_version = ver;
-    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
-    g_dlsym_hook = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
-    g_fopen_hook = TEST_FOPEN_HOOKS::AlwaysNullPluginPathCheck;
-    g_mfxinitex_hook = TEST_MFXINITEX_HOOKS::AlwaysErrNone;
-    g_mfxqueryimpl_hook = TEST_MFXQUERYIMPL_HOOKS::AlwaysErrNone;
-    g_mfxqueryversion_hook = std::bind(TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneParametrized, _1, _2, par);
+    MockCallObj& mock = *g_call_obj_ptr;
+
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    mock.emulated_api_version = ver;
+
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryIMPL).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_NONE));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::ReturnEmulatedVersion));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     ASSERT_EQ(sts, MFX_ERR_NONE);
+
+    EXPECT_CALL(mock, fopen).Times(AtLeast(1));
     mfxPluginUID uid{0};
     std::fill(uid.Data, uid.Data + sizeof(mfxPluginUID), 0xBE);
     sts = MFXVideoUSER_Load(session, &uid, 0);
+
 }
 

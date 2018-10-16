@@ -19,19 +19,25 @@
 // SOFTWARE.
 
 #include "mfx_dispatch_test_main.h"
-
-#include "gtest/gtest.h"
+#include "mfx_dispatch_test_mock_call_obj.h"
+#include <gtest/gtest.h>
+#include <gmock/gmock.h>
 #include <mfxvideo.h>
-#include <functional>
-
-using namespace std::placeholders;
+#include <algorithm>
+#include <type_traits>
 
 TEST_F(DispatcherTest, ShouldSucceedForSeeminglyGoodMockLibrary)
 {
-    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
-    par.emulated_api_version = ver;
+    MockCallObj& mock = *g_call_obj_ptr;
 
-    SetupGoodLib(par);
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    mock.emulated_api_version = ver;
+
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryIMPL).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_NONE));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::ReturnEmulatedVersion));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     ASSERT_EQ(sts, MFX_ERR_NONE);
@@ -39,37 +45,79 @@ TEST_F(DispatcherTest, ShouldSucceedForSeeminglyGoodMockLibrary)
 
 TEST_F(DispatcherTest, ShouldFailIfNoLibraryIsFound)
 {
+    MockCallObj& mock = *g_call_obj_ptr;
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1));
     mfxStatus sts = MFXInit(impl, &ver, &session);
     ASSERT_EQ(sts, MFX_ERR_UNSUPPORTED);
 }
 
-TEST_F(DispatcherTest, ShouldEnumerateCorrectLibNames)
-{
-    std::vector<mfxIMPL> impl_cases_list {
-            MFX_IMPL_AUTO,
-            MFX_IMPL_SOFTWARE,
-            MFX_IMPL_HARDWARE,
-            MFX_IMPL_AUTO_ANY,
-            MFX_IMPL_HARDWARE_ANY,
-            MFX_IMPL_HARDWARE2,
-            MFX_IMPL_HARDWARE3,
-            MFX_IMPL_HARDWARE4,
-            MFX_IMPL_RUNTIME,
-    };
+template <mfxIMPL T>
+using impl_type = std::integral_constant<int, T>;
 
-    for (auto impl_case : impl_cases_list)
+using impl_case_list = ::testing::Types<
+            impl_type<MFX_IMPL_AUTO>,
+            impl_type<MFX_IMPL_SOFTWARE>,
+            impl_type<MFX_IMPL_HARDWARE>,
+            impl_type<MFX_IMPL_AUTO_ANY>,
+            impl_type<MFX_IMPL_HARDWARE_ANY>,
+            impl_type<MFX_IMPL_HARDWARE2>,
+            impl_type<MFX_IMPL_HARDWARE3>,
+            impl_type<MFX_IMPL_HARDWARE4>,
+            impl_type<MFX_IMPL_RUNTIME>
+            >;
+
+TYPED_TEST_CASE(DispatcherTestTyped, impl_case_list);
+TYPED_TEST(DispatcherTestTyped, ShouldEnumerateCorrectLibNames)
+{
+    MockCallObj& mock = *g_call_obj_ptr;
+
+#if defined(__i386__)
+    const std::string LIBMFXSW("libmfxsw32.so.1");
+    const std::string LIBMFXHW("libmfxhw32.so.1");
+#elif defined(__x86_64__)
+    const std::string LIBMFXSW("libmfxsw64.so.1");
+    const std::string LIBMFXHW("libmfxhw64.so.1");
+#endif
+
+    std::string modules_dir(MFX_MODULES_DIR);
+    constexpr mfxIMPL impl = TypeParam::value;
+    std::vector<std::string> libs;
+
+    if (MFX_IMPL_BASETYPE(impl) == MFX_IMPL_AUTO ||
+        MFX_IMPL_BASETYPE(impl) == MFX_IMPL_AUTO_ANY)
     {
-        impl = impl_case;
-        par.requested_implementation = impl;
-        g_dlopen_hook = std::bind(TEST_DLOPEN_HOOKS::AlwaysNullLibNameCheck, _1, _2, par);
-        mfxStatus sts = MFXInit(impl, &ver, &session);
+        libs.emplace_back(LIBMFXHW);
+        libs.emplace_back(modules_dir + "/" + LIBMFXHW);
+        libs.emplace_back(LIBMFXSW);
+        libs.emplace_back(modules_dir + "/" + LIBMFXSW);
     }
+    else if ((impl & MFX_IMPL_HARDWARE) ||
+             (impl & MFX_IMPL_HARDWARE_ANY))
+    {
+        libs.emplace_back(LIBMFXHW);
+        libs.emplace_back(modules_dir + "/" + LIBMFXHW);
+    }
+    else if (impl & MFX_IMPL_SOFTWARE)
+    {
+        libs.emplace_back(LIBMFXSW);
+        libs.emplace_back(modules_dir + "/" + LIBMFXSW);
+    }
+
+    for (std::string lib : libs)
+    {
+        EXPECT_CALL(mock, dlopen(StrEq(lib.c_str()),_));
+    }
+
+    mfxStatus sts = MFXInit(impl, &this->ver, &this->session);
 }
 
 TEST_F(DispatcherTest, ShouldFailIfAvailLibHasNoSymbols)
 {
-    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
-    g_dlsym_hook  = TEST_DLSYM_HOOKS::AlwaysNull;
+    MockCallObj& mock = *g_call_obj_ptr;
+
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Return(nullptr));
+    EXPECT_CALL(mock, dlclose).Times(AtLeast(1));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
@@ -77,11 +125,15 @@ TEST_F(DispatcherTest, ShouldFailIfAvailLibHasNoSymbols)
 
 TEST_F(DispatcherTest, ShouldFailIfRequestedLibVersionTooLowForDispatch)
 {
-    par.emulated_api_version = {{10, 1}}; // Should fail for no MfxInitEx
+    MockCallObj& mock = *g_call_obj_ptr;
+
+    mock.emulated_api_version = {{10, 1}}; // Should fail for no MfxInitEx
     ver = {{28, 1}};
 
-    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
-    g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXClose).Times(AtLeast(1));
+    EXPECT_CALL(mock, dlclose).Times(AtLeast(1));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
@@ -89,11 +141,18 @@ TEST_F(DispatcherTest, ShouldFailIfRequestedLibVersionTooLowForDispatch)
 
 TEST_F(DispatcherTest, ShouldFailIfAvailLibVersionLessThanRequested)
 {
-    par.emulated_api_version = {{18, 1}};
+    MockCallObj& mock = *g_call_obj_ptr;
+
+    mock.emulated_api_version = {{18, 1}};
     ver = {{28, 1}};
 
-    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
-    g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryIMPL).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_NONE));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::ReturnEmulatedVersion));
+    EXPECT_CALL(mock, MFXClose).Times(AtLeast(1));
+    EXPECT_CALL(mock, dlclose).Times(AtLeast(1));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
@@ -101,10 +160,16 @@ TEST_F(DispatcherTest, ShouldFailIfAvailLibVersionLessThanRequested)
 
 TEST_F(DispatcherTest, ShouldSucceedIfAvailLibVersionLargerThanRequested)
 {
-    par.emulated_api_version = {{28, 1}};
+    MockCallObj& mock = *g_call_obj_ptr;
+
+    mock.emulated_api_version = {{28, 1}};
     ver = {{18, 1}};
 
-    SetupGoodLib(par);
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryIMPL).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_NONE));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::ReturnEmulatedVersion));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_NONE);
@@ -112,12 +177,16 @@ TEST_F(DispatcherTest, ShouldSucceedIfAvailLibVersionLargerThanRequested)
 
 TEST_F(DispatcherTest, ShouldFailIfLibCannotMfxInitEx)
 {
+    MockCallObj& mock = *g_call_obj_ptr;
+
     ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
-    par.emulated_api_version = ver;
+    mock.emulated_api_version = ver;
 
-    SetupGoodLib(par);
-
-    g_mfxinitex_hook = TEST_MFXINITEX_HOOKS::AlwaysUnsupported;
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_UNSUPPORTED));
+    EXPECT_CALL(mock, MFXClose).Times(AtLeast(1));
+    EXPECT_CALL(mock, dlclose).Times(AtLeast(1));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
@@ -125,12 +194,18 @@ TEST_F(DispatcherTest, ShouldFailIfLibCannotMfxInitEx)
 
 TEST_F(DispatcherTest, ShouldFailIfLibCannotMfxQueryVersion)
 {
+    MockCallObj& mock = *g_call_obj_ptr;
+
     ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
-    par.emulated_api_version = ver;
+    mock.emulated_api_version = ver;
 
-    SetupGoodLib(par);
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_UNSUPPORTED));
+    EXPECT_CALL(mock, MFXClose).Times(AtLeast(1));
+    EXPECT_CALL(mock, dlclose).Times(AtLeast(1));
 
-    g_mfxqueryversion_hook = TEST_MFXQUERYVERSION_HOOKS::AlwaysUnsupported;
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
@@ -138,12 +213,20 @@ TEST_F(DispatcherTest, ShouldFailIfLibCannotMfxQueryVersion)
 
 TEST_F(DispatcherTest, ShouldFailIfLibReportsWrongVersion)
 {
+    MockCallObj& mock = *g_call_obj_ptr;
+
     ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
-    par.emulated_api_version = ver;
+    mock.emulated_api_version = ver;
 
-    SetupGoodLib(par);
+    mfxVersion nullversion = {{0}};
 
-    g_mfxqueryversion_hook = TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneNullVersion;
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryIMPL).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_NONE));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(nullversion), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXClose).Times(AtLeast(1));
+    EXPECT_CALL(mock, dlclose).Times(AtLeast(1));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
@@ -151,12 +234,20 @@ TEST_F(DispatcherTest, ShouldFailIfLibReportsWrongVersion)
 
 TEST_F(DispatcherTest, ShouldFailIfImplNotSupportedByLib)
 {
+    MockCallObj& mock = *g_call_obj_ptr;
+
     ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
-    par.emulated_api_version = ver;
+    mock.emulated_api_version = ver;
 
-    SetupGoodLib(par);
+    mfxVersion nullversion = {{0}};
 
-    g_mfxqueryimpl_hook = TEST_MFXQUERYIMPL_HOOKS::AlwaysUnsupported;
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryIMPL).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_UNSUPPORTED));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::ReturnEmulatedVersion));
+    EXPECT_CALL(mock, MFXClose).Times(AtLeast(1));
+    EXPECT_CALL(mock, dlclose).Times(AtLeast(1));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
@@ -164,19 +255,26 @@ TEST_F(DispatcherTest, ShouldFailIfImplNotSupportedByLib)
 
 TEST_F(DispatcherTest, ShouldSucceedIfFirstLibBadSecondLibGood)
 {
-    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
-    par.emulated_api_version = ver;
+    MockCallObj& mock = *g_call_obj_ptr;
 
-    SetupGoodLib(par);
-    bool dlopen_run_flag = false;
-    g_dlopen_hook = std::bind(TEST_DLOPEN_HOOKS::NullThenMock, _1, _2, dlopen_run_flag);
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    mock.emulated_api_version = ver;
+
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillOnce(Return(nullptr)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryIMPL).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_NONE));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::ReturnEmulatedVersion));
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_NONE);
 
-    SetupGoodLib(par);
-    bool dlsym_run_flag = false;
-    g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::NullThenEmulateAPIParametrized, _1, _2, par, dlsym_run_flag);
+    EXPECT_CALL(mock, dlopen).Times(AtLeast(1)).WillRepeatedly(Return(MOCK_DLOPEN_HANDLE));
+    EXPECT_CALL(mock, dlsym).Times(AtLeast(1)).WillOnce(Return(nullptr)).WillRepeatedly(Invoke(&mock, &MockCallObj::EmulateAPI));
+    EXPECT_CALL(mock, MFXInitEx).Times(AtLeast(1)).WillRepeatedly(DoAll(SetArgPointee<1>(MOCK_SESSION_HANDLE), Return(MFX_ERR_NONE)));
+    EXPECT_CALL(mock, MFXQueryIMPL).Times(AtLeast(1)).WillRepeatedly(Return(MFX_ERR_NONE));
+    EXPECT_CALL(mock, MFXQueryVersion).Times(AtLeast(1)).WillRepeatedly(Invoke(&mock, &MockCallObj::ReturnEmulatedVersion));
+    EXPECT_CALL(mock, dlclose).Times(AtLeast(1));
 
     sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_NONE);
