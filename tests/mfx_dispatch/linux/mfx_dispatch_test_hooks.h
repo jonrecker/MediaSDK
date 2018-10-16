@@ -45,10 +45,9 @@ typedef std::function<mfxStatus (mfxSession)> MfxCloseHook;
 namespace TEST_DLOPEN_HOOKS
 {
     void* AlwaysNull(const char *filename, int flag);
-    void* AlwaysBogus(const char *filename, int flag);
+    void* AlwaysMock(const char *filename, int flag);
     void* AlwaysNullLibNameCheck(const char *filename, int flag, HookInternalParams par);
-    void* AlwaysNullParametrized(const char *filename, int flag, HookInternalParams par);
-    void* LatestLibMock(const char *filename, int flag, HookInternalParams par);
+    void* NullThenMock(const char *filename, int flag, bool& run_already);
 }
 
 namespace TEST_DLCLOSE_HOOKS
@@ -60,7 +59,7 @@ namespace TEST_DLSYM_HOOKS
 {
     void* AlwaysNull(void *handle, const char *symbol);
     void* EmulateAPIParametrized(void *handle, const char *symbol, HookInternalParams par);
-    void* LatestLibMock(const char *filename, int flag, HookInternalParams par);
+    void* NullThenEmulateAPIParametrized(void *handle, const char *symbol, HookInternalParams par, bool& run_already);
 }
 
 namespace TEST_FOPEN_HOOKS
@@ -79,6 +78,7 @@ namespace TEST_MFXQUERYVERSION_HOOKS
 {
     mfxStatus AlwaysUnsupported(mfxSession session, mfxVersion *pVersion);
     mfxStatus AlwaysErrNoneParametrized(mfxSession session, mfxVersion *pVersion, HookInternalParams par);
+    mfxStatus AlwaysErrNoneNullVersion(mfxSession session, mfxVersion *pVersion);
 }
 
 namespace TEST_MFXQUERYIMPL_HOOKS

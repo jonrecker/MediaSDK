@@ -25,6 +25,7 @@
 
 #include <gtest/gtest.h>
 #include <map>
+#include <functional>
 
 #ifndef MFX_MODULES_DIR
 #define MFX_MODULES_DIR "ERROR: MFX_MODULES_DIR was not defined!"
@@ -63,6 +64,15 @@ inline void ResetHooks()
     g_mfxclose_hook        = TEST_MFXCLOSE_HOOKS::AlwaysErrNone;
 }
 
+inline void SetupGoodLib(HookInternalParams par)
+{
+    using namespace std::placeholders;
+    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
+    g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
+    g_mfxinitex_hook = TEST_MFXINITEX_HOOKS::AlwaysErrNone;
+    g_mfxqueryimpl_hook = TEST_MFXQUERYIMPL_HOOKS::AlwaysErrNone;
+    g_mfxqueryversion_hook = std::bind(TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneParametrized, _1, _2, par);
+}
 
 class DispatcherTest : public ::testing::Test
 {

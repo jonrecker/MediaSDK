@@ -26,6 +26,16 @@
 
 using namespace std::placeholders;
 
+TEST_F(DispatcherTest, ShouldSucceedForSeeminglyGoodMockLibrary)
+{
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    par.emulated_api_version = ver;
+
+    SetupGoodLib(par);
+
+    mfxStatus sts = MFXInit(impl, &ver, &session);
+    ASSERT_EQ(sts, MFX_ERR_NONE);
+}
 
 TEST_F(DispatcherTest, ShouldFailIfNoLibraryIsFound)
 {
@@ -56,20 +66,120 @@ TEST_F(DispatcherTest, ShouldEnumerateCorrectLibNames)
     }
 }
 
+TEST_F(DispatcherTest, ShouldFailIfAvailLibHasNoSymbols)
+{
+    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
+    g_dlsym_hook  = TEST_DLSYM_HOOKS::AlwaysNull;
 
-TEST_F(DispatcherTest, ShouldFailIfAvailLibVersionLessThanRequested)
+    mfxStatus sts = MFXInit(impl, &ver, &session);
+    EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
+}
+
+TEST_F(DispatcherTest, ShouldFailIfRequestedLibVersionTooLowForDispatch)
 {
     par.emulated_api_version = {{10, 1}}; // Should fail for no MfxInitEx
     ver = {{28, 1}};
 
-    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysBogus;
+    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
     g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
 
     mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
+}
 
+TEST_F(DispatcherTest, ShouldFailIfAvailLibVersionLessThanRequested)
+{
     par.emulated_api_version = {{18, 1}};
+    ver = {{28, 1}};
+
+    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
     g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
-    sts = MFXInit(impl, &ver, &session);
+
+    mfxStatus sts = MFXInit(impl, &ver, &session);
     EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
 }
+
+TEST_F(DispatcherTest, ShouldSucceedIfAvailLibVersionLargerThanRequested)
+{
+    par.emulated_api_version = {{28, 1}};
+    ver = {{18, 1}};
+
+    SetupGoodLib(par);
+
+    mfxStatus sts = MFXInit(impl, &ver, &session);
+    EXPECT_EQ(sts, MFX_ERR_NONE);
+}
+
+TEST_F(DispatcherTest, ShouldFailIfLibCannotMfxInitEx)
+{
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    par.emulated_api_version = ver;
+
+    SetupGoodLib(par);
+
+    g_mfxinitex_hook = TEST_MFXINITEX_HOOKS::AlwaysUnsupported;
+
+    mfxStatus sts = MFXInit(impl, &ver, &session);
+    EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
+}
+
+TEST_F(DispatcherTest, ShouldFailIfLibCannotMfxQueryVersion)
+{
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    par.emulated_api_version = ver;
+
+    SetupGoodLib(par);
+
+    g_mfxqueryversion_hook = TEST_MFXQUERYVERSION_HOOKS::AlwaysUnsupported;
+
+    mfxStatus sts = MFXInit(impl, &ver, &session);
+    EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
+}
+
+TEST_F(DispatcherTest, ShouldFailIfLibReportsWrongVersion)
+{
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    par.emulated_api_version = ver;
+
+    SetupGoodLib(par);
+
+    g_mfxqueryversion_hook = TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneNullVersion;
+
+    mfxStatus sts = MFXInit(impl, &ver, &session);
+    EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
+}
+
+TEST_F(DispatcherTest, ShouldFailIfImplNotSupportedByLib)
+{
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    par.emulated_api_version = ver;
+
+    SetupGoodLib(par);
+
+    g_mfxqueryimpl_hook = TEST_MFXQUERYIMPL_HOOKS::AlwaysUnsupported;
+
+    mfxStatus sts = MFXInit(impl, &ver, &session);
+    EXPECT_EQ(sts, MFX_ERR_UNSUPPORTED);
+}
+
+TEST_F(DispatcherTest, ShouldSucceedIfFirstLibBadSecondLibGood)
+{
+    ver = {{MFX_VERSION_MINOR, MFX_VERSION_MAJOR}};
+    par.emulated_api_version = ver;
+
+    SetupGoodLib(par);
+    bool dlopen_run_flag = false;
+    g_dlopen_hook = std::bind(TEST_DLOPEN_HOOKS::NullThenMock, _1, _2, dlopen_run_flag);
+
+    mfxStatus sts = MFXInit(impl, &ver, &session);
+    EXPECT_EQ(sts, MFX_ERR_NONE);
+
+    SetupGoodLib(par);
+    bool dlsym_run_flag = false;
+    g_dlsym_hook  = std::bind(TEST_DLSYM_HOOKS::NullThenEmulateAPIParametrized, _1, _2, par, dlsym_run_flag);
+
+    sts = MFXInit(impl, &ver, &session);
+    EXPECT_EQ(sts, MFX_ERR_NONE);
+}
+
+

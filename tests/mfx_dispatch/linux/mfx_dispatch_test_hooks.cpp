@@ -68,9 +68,9 @@ static const FunctionsTable g_mfxFuncTable[] =
 };
 #undef FUNCTION
 
-void* BOGUS_DLOPEN_HANDLE = reinterpret_cast<void*>(0x0BADCAFE);
-void* BOGUS_FUNC_PTR = reinterpret_cast<void*>(0xDEADBEEF);
-mfxSession BOGUS_SESSION_HANDLE = reinterpret_cast<mfxSession>(0xFADEBABE);
+void* MOCK_DLOPEN_HANDLE = reinterpret_cast<void*>(0x0BADCAFE);
+void* MOCK_FUNC_PTR = reinterpret_cast<void*>(0xDEADBEEF);
+mfxSession MOCK_SESSION_HANDLE = reinterpret_cast<mfxSession>(0xFADEBABE);
 
 // dlopen hooks implementation:
 
@@ -79,9 +79,19 @@ void* TEST_DLOPEN_HOOKS::AlwaysNull(const char *filename, int flag)
     return nullptr;
 }
 
-void* TEST_DLOPEN_HOOKS::AlwaysBogus(const char *filename, int flag)
+void* TEST_DLOPEN_HOOKS::AlwaysMock(const char *filename, int flag)
 {
-    return BOGUS_DLOPEN_HANDLE;
+    return MOCK_DLOPEN_HANDLE;
+}
+
+void* TEST_DLOPEN_HOOKS::NullThenMock(const char *filename, int flag, bool& run_already)
+{
+    if (!run_already)
+    {
+        run_already = true;
+        return nullptr;
+    }
+    return MOCK_DLOPEN_HANDLE;
 }
 
 void* TEST_DLOPEN_HOOKS::AlwaysNullLibNameCheck(const char *filename, int flag, HookInternalParams par)
@@ -133,7 +143,6 @@ void* TEST_DLSYM_HOOKS::AlwaysNull(void *handle, const char *symbol)
     return nullptr;
 }
 
-
 void* TEST_DLSYM_HOOKS::EmulateAPIParametrized(void *handle, const char *symbol, HookInternalParams par)
 {
     std::string requested_symbol(symbol);
@@ -166,12 +175,23 @@ void* TEST_DLSYM_HOOKS::EmulateAPIParametrized(void *handle, const char *symbol,
             mfxVersion symbol_api_version = g_mfxFuncTable[i].version;
             if (requested_symbol == available_symbol && par.emulated_api_version.Version > symbol_api_version.Version)
             {
-                return BOGUS_FUNC_PTR;
+                return MOCK_FUNC_PTR;
             }
         }
     }
     return nullptr;
 }
+
+void* TEST_DLSYM_HOOKS::NullThenEmulateAPIParametrized(void *handle, const char *symbol, HookInternalParams par, bool& run_already)
+{
+    if (!run_already)
+    {
+        run_already = true;
+        return nullptr;
+    }
+    return TEST_DLSYM_HOOKS::EmulateAPIParametrized(handle, symbol, par);
+}
+
 
 // fopen hooks implementation:
 
@@ -197,7 +217,7 @@ mfxStatus TEST_MFXINITEX_HOOKS::AlwaysUnsupported(mfxInitParam par, mfxSession *
 
 mfxStatus TEST_MFXINITEX_HOOKS::AlwaysErrNone(mfxInitParam par, mfxSession *session)
 {
-    *session = BOGUS_SESSION_HANDLE;
+    *session = MOCK_SESSION_HANDLE;
     return MFX_ERR_NONE;
 }
 
@@ -211,6 +231,12 @@ mfxStatus TEST_MFXQUERYVERSION_HOOKS::AlwaysUnsupported(mfxSession session, mfxV
 mfxStatus TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneParametrized(mfxSession session, mfxVersion *pVersion, HookInternalParams par)
 {
     *pVersion = par.emulated_api_version;
+    return MFX_ERR_NONE;
+}
+
+mfxStatus TEST_MFXQUERYVERSION_HOOKS::AlwaysErrNoneNullVersion(mfxSession session, mfxVersion *pVersion)
+{
+    *pVersion = {0};
     return MFX_ERR_NONE;
 }
 

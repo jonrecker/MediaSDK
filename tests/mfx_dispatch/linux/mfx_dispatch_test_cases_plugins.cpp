@@ -31,7 +31,7 @@ TEST_F(DispatcherTest, ShouldSearchForPluginsCfgByCorrectPath)
 {
     ver = {{28, 1}};
     par.emulated_api_version = ver;
-    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysBogus;
+    g_dlopen_hook = TEST_DLOPEN_HOOKS::AlwaysMock;
     g_dlsym_hook = std::bind(TEST_DLSYM_HOOKS::EmulateAPIParametrized, _1, _2, par);
     g_fopen_hook = TEST_FOPEN_HOOKS::AlwaysNullPluginPathCheck;
     g_mfxinitex_hook = TEST_MFXINITEX_HOOKS::AlwaysErrNone;
