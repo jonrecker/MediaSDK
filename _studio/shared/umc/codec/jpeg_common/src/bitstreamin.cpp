@@ -28,8 +28,8 @@
 
 CBitStreamInput::CBitStreamInput(void)
 {
-  m_in         = 0;
-  m_pData      = 0;
+  m_in         = nullptr;
+  m_pData      = nullptr;
   m_DataLen    = 0;
   m_currPos    = 0;
   m_nUsedBytes = 0;
@@ -58,15 +58,18 @@ JERRCODE CBitStreamInput::Attach(CBaseStreamInput* in)
 
 JERRCODE CBitStreamInput::Detach(void)
 {
-  if(0 != m_pData)
+  if(nullptr != m_pData)
   {
     // deallocate internal memory
     delete[] m_pData;
-    m_pData = 0;
+    m_pData = nullptr;
+  }
+  if(nullptr != m_in)
+  {
+    delete m_in;
+    m_in = nullptr;
   }
 
-  m_in         = 0;
-  m_pData      = 0;
   m_DataLen    = 0;
   m_currPos    = 0;
   m_nUsedBytes = 0;
@@ -113,7 +116,7 @@ JERRCODE CBitStreamInput::FillBuffer(int nMinBytes)
     m_currPos = 0;
   }
 
-  if(!m_eod)
+  if(!m_eod && nullptr != m_in)
   {
     m_in->Read(m_pData + remainder,m_DataLen - remainder,&cnt);
     if((int)cnt != m_DataLen - remainder)
@@ -156,7 +159,9 @@ JERRCODE CBitStreamInput::Seek(long offset, int origin)
         m_currPos = m_DataLen;
         m_nUsedBytes += offset;
 
-        jerr = m_in->Seek(_offset - m_DataLen,UIC_SEEK_CUR);
+        jerr = JPEG_ERR_BUFF;
+        if (nullptr != m_in)
+            jerr = m_in->Seek(_offset - m_DataLen,UIC_SEEK_CUR);
         if(JPEG_OK != jerr)
           return jerr;
 

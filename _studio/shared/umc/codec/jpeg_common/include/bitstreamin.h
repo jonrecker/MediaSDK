@@ -58,7 +58,7 @@ public:
 protected:
   CBaseStreamInput* m_in;
 
-  uint8_t*            m_pData;
+  uint8_t*          m_pData;
   int               m_DataLen;
   int               m_currPos;
   int               m_nUsedBytes;

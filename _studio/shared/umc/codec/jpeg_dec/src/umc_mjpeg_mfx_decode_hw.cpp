@@ -267,10 +267,10 @@ Status MJPEGVideoDecoderMFX_HW::_DecodeField(MediaDataEx* in)
 {
     int32_t     nUsedBytes = 0;
 
-    CMemBuffInput stream;
-    stream.Open((uint8_t*)in->GetDataPointer(), (int32_t)in->GetDataSize());
+    CMemBuffInput* stream = new CMemBuffInput();
+    stream->Open((uint8_t*)in->GetDataPointer(), (int32_t)in->GetDataSize());
 
-    Status status = _DecodeHeader(&stream, &nUsedBytes);
+    Status status = _DecodeHeader(stream, &nUsedBytes);
     if (status > 0)
     {
         in->MoveDataPointer(nUsedBytes);
@@ -398,6 +398,13 @@ Status MJPEGVideoDecoderMFX_HW::GetFrameHW(MediaDataEx* in)
             foundSOS = true;
         }
 
+        CMemBuffInput* stream = new CMemBuffInput();
+        stream->Open((uint8_t*)in->GetDataPointer() + pAuxData->offsets[i] + 2, (int32_t)in->GetDataSize() - pAuxData->offsets[i] - 2);
+
+        jerr = m_decBase->SetSource(stream);
+        if(JPEG_OK != jerr)
+            return UMC_ERR_FAILED;
+
         // some data
         if (JM_SOS == marker)
         {
@@ -413,13 +420,6 @@ Status MJPEGVideoDecoderMFX_HW::GetFrameHW(MediaDataEx* in)
             chunkSize = (nextNotRSTMarkerPos < pAuxData->count) ?
                         (pAuxData->offsets[nextNotRSTMarkerPos] - pAuxData->offsets[i]) :
                         (srcSize - pAuxData->offsets[i]);
-
-            CMemBuffInput stream;
-            stream.Open((uint8_t*)in->GetDataPointer() + pAuxData->offsets[i] + 2, (int32_t)in->GetDataSize() - pAuxData->offsets[i] - 2);
-
-            jerr = m_decBase->SetSource(&stream);
-            if(JPEG_OK != jerr)
-                return UMC_ERR_FAILED;
 
             jerr = m_decBase->ParseSOS(JO_READ_HEADER);
             if(JPEG_OK != jerr)
@@ -458,13 +458,6 @@ Status MJPEGVideoDecoderMFX_HW::GetFrameHW(MediaDataEx* in)
         }
         else if (JM_DRI == marker)
         {
-            CMemBuffInput stream;
-            stream.Open((uint8_t*)in->GetDataPointer() + pAuxData->offsets[i] + 2, (int32_t)in->GetDataSize() - pAuxData->offsets[i] - 2);
-
-            jerr = m_decBase->SetSource(&stream);
-            if(JPEG_OK != jerr)
-                return UMC_ERR_FAILED;
-
             jerr = m_decBase->ParseDRI();
             if(JPEG_OK != jerr)
             {
@@ -476,13 +469,6 @@ Status MJPEGVideoDecoderMFX_HW::GetFrameHW(MediaDataEx* in)
         }
         else if (JM_DQT == marker)
         {
-            CMemBuffInput stream;
-            stream.Open((uint8_t*)in->GetDataPointer() + pAuxData->offsets[i] + 2, (int32_t)in->GetDataSize() - pAuxData->offsets[i] - 2);
-
-            jerr = m_decBase->SetSource(&stream);
-            if(JPEG_OK != jerr)
-                return UMC_ERR_FAILED;
-
             jerr = m_decBase->ParseDQT();
             if(JPEG_OK != jerr)
             {
@@ -496,13 +482,6 @@ Status MJPEGVideoDecoderMFX_HW::GetFrameHW(MediaDataEx* in)
         }
         else if (JM_DHT == marker)
         {
-            CMemBuffInput stream;
-            stream.Open((uint8_t*)in->GetDataPointer() + pAuxData->offsets[i] + 2, (int32_t)in->GetDataSize() - pAuxData->offsets[i] - 2);
-
-            jerr = m_decBase->SetSource(&stream);
-            if(JPEG_OK != jerr)
-                return UMC_ERR_FAILED;
-
             jerr = m_decBase->ParseDHT();
             if(JPEG_OK != jerr)
             {
